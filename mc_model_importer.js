@@ -29,84 +29,75 @@
   // Parser Class
   class MinecraftModelParser {
     static generatedBones;
+    static partDefinitions;
 
     static parse(javaCode, textureWidth = 64, textureHeight = 64) {
-      javaCode.replaceAll(/[\n]/g, "");
+      javaCode = javaCode.replaceAll(/[\n]/g, "");
+      this.partDefinitions = new Map();
 
-      javaCode = javaCode.substring(
-        javaCode.indexOf("LayerDefinition createBodyLayer()"),
-        javaCode.indexOf("return LayerDefinition.create"),
-      );
+      const startIdx = javaCode.indexOf("LayerDefinition createBodyLayer()");
+      const endIdx = javaCode.indexOf("return LayerDefinition.create");
 
-      let lines = javaCode.split(";");
+      if (startIdx === -1 || endIdx === -1) {
+        throw new Error("Could not find LayerDefinition section");
+      }
+
+      javaCode = javaCode.substring(startIdx, endIdx);
+
+      let lines = javaCode
+        .split(";")
+        .filter((line) => line.includes("addOrReplaceChild"));
       let builder = new ModelBuilder();
 
       for (const line of lines) {
-        console.log(line);
-        if (line.search("addOrReplaceChild") === -1) {
-          continue;
-        }
+        //console.log(line);
         //example line:
         // body.addOrReplaceChild("tail", CubeListBuilder.create().texOffs(44, 53).addBox(-0.5F, -0.0865F, 0.0933F, 1.0F, 6.0F, 1.0F, new CubeDeformation(0.0F)), PartPose.offsetAndRotation(0.0F, -3.0F, 1.0F, 0.5061F, 0.0F, 0.0F))
 
-        let camelCaseName = line.substring(
-          0,
-          line.indexOf(".addOrReplaceChild"),
+        let data = this.parseAddOrReplaceChild(line);
+
+        builder.generateModelPart(
+          data.parent,
+          data.bone,
+          data.cubes,
+          data.partPose,
         );
-        camelCaseName = camelCaseName.substring(camelCaseName.lastIndexOf(" "));
-        camelCaseName = camelCaseName.trim();
-
-        //convert camelCase variables into the snake_case names
-        let parentName = "";
-        for (let i = 0; i < camelCaseName.length; i++) {
-          if (
-            camelCaseName.charAt(i) === camelCaseName.charAt(i).toUpperCase()
-          ) {
-            parentName += "_";
-          }
-          parentName += camelCaseName.charAt(i).toLowerCase();
-        }
-
-        console.log("[MCMI] parent name: " + parentName);
-
-        let methodVariables = line.substring(
-          line.indexOf("addOrReplaceChild("),
-          line.lastIndexOf(")"),
-        );
-        methodVariables = methodVariables.substring(
-          methodVariables.indexOf("(") + 1,
-        );
-
-        let boneName = methodVariables.substring(
-          0,
-          methodVariables.indexOf(","),
-        );
-        boneName = boneName.replaceAll('"', "");
-        boneName = boneName.trim();
-
-        console.log("[MCMI] bone name: " + boneName);
-
-        let cubeListBuilderMethod = methodVariables.substring(
-          methodVariables.indexOf("CubeListBuilder.create()"),
-          methodVariables.indexOf("PartPose"),
-        );
-
-        let cubes = this.cubeBuilder(cubeListBuilderMethod);
-
-        let offsetAndRotation = methodVariables.substring(
-          methodVariables.indexOf("PartPose"),
-        );
-        offsetAndRotation = offsetAndRotation.substring(
-          offsetAndRotation.indexOf("(") + 1,
-          offsetAndRotation.indexOf(")"),
-        );
-
-        offsetAndRotation = offsetAndRotation.replaceAll("F", "");
-
-        let partPose = offsetAndRotation.split(","); //should be 6 values, offset x,y,z, rotation x,y,z
-
-        builder.generateModelPart(parentName, boneName, cubes, partPose);
       }
+    }
+
+    static parseAddOrReplaceChild(line) {
+      const partDefinitionMatch = line.match(/PartDefinition\s(.*?)\s/);
+
+      const boneMatch = line.match(/addOrReplaceChild\s*\(\s*"([^"]+)"/);
+      let bone = boneMatch[1];
+      console.log("bone name: " + bone);
+
+      if (partDefinitionMatch) {
+        this.partDefinitions.set(partDefinitionMatch[1], bone);
+      }
+      const parentMatch = line.match(/(\w+)\.addOrReplaceChild/);
+      let parent = parentMatch[1];
+      if (parentMatch[1].search(/([A-Z])/g) != -1) {
+        parent = this.partDefinitions.get(parentMatch[1]);
+      }
+
+      console.log("parent name: " + parent);
+
+      const cubesMatch = line.match(/CubeListBuilder\.create\(\)(.+?)PartPose/);
+      let cubes = this.cubeBuilder(cubesMatch[1]);
+
+      const poseMatch = line.match(
+        /PartPose\.offsetA?n?d?R?o?t?a?t?i?o?n?\.*?\((.*?)\)/,
+      );
+
+      //splits, and then removes the "F" from each float, and turns them into Numbers
+      let partPose = poseMatch[1]
+        .split(",")
+        .map((v) => Number(v.replace(/F/g, "").trim()));
+
+      console.log("Part Pose: " + partPose);
+
+      return { parent, bone, cubes, partPose };
     }
 
     static cubeBuilder(builderString) {
@@ -114,56 +105,48 @@
       // CubeListBuilder.create().texOffs(44, 53).addBox(-0.5F, -0.0865F, 0.0933F, 1.0F, 6.0F, 1.0F, new CubeDeformation(0.0F)),
       let cubes = [];
 
-      let cubeStrings = builderString.split("texOffs");
-
+      let cubeStrings = builderString.match(
+        /\.texOffs\s*\(([^)]+)\).*?(?=\.texOffs|$)/g,
+      );
+      if (!cubeStrings) {
+        return cubes;
+      }
       for (const cubeString of cubeStrings) {
-        if (cubeString.search("addBox") === -1) {
-          continue;
-        }
-
         let newCube = new CubeValues();
 
-        let texValues = cubeString.substring(
-          cubeString.indexOf("(") + 1,
-          cubeString.indexOf(")"),
-        );
-        texValues.replaceAll("F", "");
-        let values = texValues.split(",");
+        let texValues = cubeString.match(/texOffs\s*\(([^)]+)\)/);
+        let values = texValues[1]
+          .split(",")
+          .map((v) => Number(v.replace(/F/g, "").trim()));
 
         console.log("[MCMI] texture values: " + values);
 
         newCube.xTexOffs = Number(values[0]);
         newCube.yTexOffs = Number(values[1]);
 
-        let cubeValues = cubeString.substring(
-          cubeString.indexOf("addBox") + 7,
-          cubeString.indexOf("CubeDeformation"),
-        );
+        let cubeValues = cubeString.match(/addBox\s*\(([^)]+)\)/);
 
-        cubeValues = cubeValues.replaceAll("F", "");
-
-        values = cubeValues.split(",");
+        values = cubeValues[1]
+          .split(",")
+          .map((v) => Number(v.replace(/F/g, "").trim()));
 
         console.log("[MCMI] cube values: " + values);
 
-        newCube.xO = Number(values[0]);
-        newCube.yO = -Number(values[1]);
-        newCube.zO = Number(values[2]);
-        newCube.w = Number(values[3]);
-        newCube.h = Number(values[4]);
-        newCube.d = Number(values[5]);
+        newCube.xO = values[0];
+        newCube.yO = -values[1];
+        newCube.zO = values[2];
+        newCube.w = values[3];
+        newCube.h = values[4];
+        newCube.d = values[5];
 
-        let deformValue = cubeString.substring(
-          cubeString.indexOf("CubeDeformation"),
-        );
-        deformValue = deformValue.substring(
-          deformValue.indexOf("(") + 1,
-          deformValue.indexOf(")"),
-        );
+        let deformValue = cubeString.match(/CubeDeformation\s*\(([^)]+)\)/);
+        if (!deformValue) {
+          newCube.deformation = 0;
+        } else {
+          let deformation = Number(deformValue[1].replace(/F/g, "").trim());
 
-        deformValue = deformValue.replaceAll("F", "");
-
-        newCube.deformation = Number(deformValue);
+          newCube.deformation = deformation;
+        }
 
         //console.log("[MCMI] deformation: " + newCube.deformation);
 
