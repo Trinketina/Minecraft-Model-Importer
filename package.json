@@ -1,0 +1,8 @@
+{
+  "devDependencies": {
+    "blockbench-types": "^5.1.0"
+  },
+  "allowScripts": {
+    "electron@40.10.6": true
+  }
+}
