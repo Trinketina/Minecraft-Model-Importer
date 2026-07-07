@@ -35,7 +35,7 @@
       javaCode = javaCode.replaceAll(/[\n]/g, "");
       this.partDefinitions = new Map();
 
-      const startIdx = javaCode.indexOf("LayerDefinition createBodyLayer()");
+      const startIdx = javaCode.indexOf("LayerDefinition create");
       const endIdx = javaCode.indexOf("return LayerDefinition.create");
 
       if (startIdx === -1 || endIdx === -1) {
@@ -90,12 +90,17 @@
         /PartPose\.offsetA?n?d?R?o?t?a?t?i?o?n?\.*?\((.*?)\)/,
       );
 
-      //splits, and then removes the "F" from each float, and turns them into Numbers
-      let partPose = poseMatch[1]
-        .split(",")
-        .map((v) => Number(v.replace(/F/g, "").trim()));
+      let partPose = [0, 0, 0];
+      if (!poseMatch) {
+        console.warn("no part pose found, might be PartPose.ZERO");
+      } else {
+        //splits, and then removes the "F" from each float, and turns them into Numbers
+        partPose = poseMatch[1]
+          .split(",")
+          .map((v) => Number(v.replace(/F/g, "").trim()));
 
-      console.log("Part Pose: " + partPose);
+        console.log("Part Pose: " + partPose);
+      }
 
       return { parent, bone, cubes, partPose };
     }
@@ -109,6 +114,7 @@
         /\.texOffs\s*\(([^)]+)\).*?(?=\.texOffs|$)/g,
       );
       if (!cubeStrings) {
+        console.warn("empty group created. make sure this was on purpose!");
         return cubes;
       }
       for (const cubeString of cubeStrings) {
@@ -119,7 +125,18 @@
           .split(",")
           .map((v) => Number(v.replace(/F/g, "").trim()));
 
-        console.log("[MCMI] texture values: " + values);
+        let texMirrorMatch = cubeString.match(
+          /texOffs\(.*?\)\s*\.mirror([^)]+)\)/,
+        );
+        if (this.MirrorCheck(texMirrorMatch)) {
+          newCube.mirrorUV = true;
+        } else {
+          newCube.mirrorUV = false;
+        }
+
+        console.log(
+          "[MCMI] texture values: " + values + " mirrored? " + newCube.mirrorUV,
+        );
 
         newCube.xTexOffs = Number(values[0]);
         newCube.yTexOffs = Number(values[1]);
@@ -141,6 +158,9 @@
 
         let deformValue = cubeString.match(/CubeDeformation\s*\(([^)]+)\)/);
         if (!deformValue) {
+          console.warn(
+            "no deformation found. this was likely CubeDeformation.NONE",
+          );
           newCube.deformation = 0;
         } else {
           let deformation = Number(deformValue[1].replace(/F/g, "").trim());
@@ -154,6 +174,21 @@
       }
 
       return cubes;
+    }
+
+    static MirrorCheck(mirrorMatch) {
+      if (mirrorMatch) {
+        console.log(mirrorMatch[1]);
+        let boolMirror = mirrorMatch[1].replace(/\(/, "");
+        if (boolMirror != "false") {
+          this.currentlyMirrored = true;
+          return true;
+        } else {
+          this.currentlyMirrored = false;
+          return false;
+        }
+      }
+      return false;
     }
   }
 
@@ -229,6 +264,7 @@
             boneGroup.origin[2] + cubeValues.zO + cubeValues.d,
           ],
           uv_offset: [cubeValues.xTexOffs, cubeValues.yTexOffs],
+          mirror_uv: cubeValues.mirrorUV,
           inflate: cubeValues.deformation,
         });
 
@@ -246,6 +282,7 @@
   class CubeValues {
     xTexOffs;
     yTexOffs;
+    mirrorUV;
 
     xO;
     yO;
