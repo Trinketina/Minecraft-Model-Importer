@@ -86,8 +86,14 @@
     static parseAddOrReplaceChild(line) {
       const partDefinitionMatch = line.match(/PartDefinition\s(.*?)\s/);
 
-      const boneMatch = line.match(/addOrReplaceChild\s*\(\s*"([^"]+)"/);
-      let bone = boneMatch[1];
+      let boneMatch = line.match(/addOrReplaceChild\s*\(\s*"([^"]+)"/);
+      let bone;
+      if (boneMatch) {
+        bone = boneMatch[1];
+      } else {
+        boneMatch = line.match(/addOrReplaceChild\s*\(\s*PartNames.([^)]+)/);
+        bone = boneMatch[1].replace(/\(/, "").trim();
+      }
       console.log("bone name: " + bone);
 
       if (partDefinitionMatch) {
