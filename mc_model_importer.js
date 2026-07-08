@@ -44,6 +44,23 @@
 
       javaCode = javaCode.substring(startIdx, endIdx);
 
+      let meshDefinitionMatch = javaCode.match(
+        /new\sMeshDefinition\(\)([^;]+)\;/,
+      );
+
+      let modelTranslation = [0, 0, 0];
+      if (meshDefinitionMatch) {
+        let translatedMatch = meshDefinitionMatch[1].match(
+          /translated\s*\(([^)]+)\)/,
+        );
+        if (translatedMatch) {
+          modelTranslation = translatedMatch[1]
+            .split(",")
+            .map((v) => Number(v.replace(/F/g, "").trim()));
+        }
+        console.log("Mesh Definition: " + meshDefinitionMatch[1]);
+      }
+
       let lines = javaCode
         .split(";")
         .filter((line) => line.includes("addOrReplaceChild"));
@@ -61,6 +78,7 @@
           data.bone,
           data.cubes,
           data.partPose,
+          modelTranslation,
         );
       }
     }
@@ -197,13 +215,21 @@
       this.groups = new Map();
     }
 
-    generateModelPart(parent = "root", child, cubes, partPose) {
-      let originOffset = [0, 24, 0];
+    generateModelPart(
+      parent = "root",
+      child,
+      cubes,
+      partPose,
+      modelTranslation,
+    ) {
+      let originOffset = [
+        0 + modelTranslation[0],
+        24 - modelTranslation[1],
+        0 + modelTranslation[2],
+      ];
       if (!this.groups.get(child)) {
         if (this.groups.get(parent)) {
           originOffset = this.groups.get(parent).origin;
-        } else {
-          originOffset = [0, 24, 0];
         }
 
         let newGroup = new Group();
