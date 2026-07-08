@@ -95,7 +95,7 @@
       }
       const parentMatch = line.match(/(\w+)\.addOrReplaceChild/);
       let parent = parentMatch[1];
-      if (parentMatch[1].search(/([A-Z])/g) != -1) {
+      if (this.partDefinitions.get(parentMatch[1])) {
         parent = this.partDefinitions.get(parentMatch[1]);
       }
 
